@@ -1,6 +1,15 @@
 # t5-epaper-navi
 
 LilyGO T5 E-Paper S3 Pro（4.7 インチ電子ペーパー、ESP32-S3）向けのファームウェア。
+
+<p>
+  <img src="docs/photos/home.jpg" width="30%" alt="ホーム画面。時刻と日付の下に、マップ、カレンダー、設定、ファイル、画像のアイコンが並ぶ">
+  <img src="docs/photos/map.jpg" width="30%" alt="マップ画面。東京駅周辺の地図と、ズームボタン、現在地ボタン">
+  <img src="docs/photos/lock.jpg" width="30%" alt="ロック画面。画面いっぱいに画像を表示している">
+</p>
+
+左からホーム画面、マップ、ロック画面。地図の出典は国土地理院（地理院タイル）。
+
 スマホ風のホーム画面から、次のアプリを起動できる。
 
 | アプリ | できること |
