@@ -5,6 +5,7 @@
 
 #include <algorithm>
 
+#include "apps.h"
 #include "gps.h"
 #include "net.h"
 #include "settings.h"
@@ -93,6 +94,24 @@ void run(const String &line, board::TouchEvent &ev, bool &home)
         Serial.printf("INFO vcom setting=%d readback=%d\n", settings::vcom(),
                       board::vcomReadback());
         Serial.printf("INFO mapView lat=%.6f lon=%.6f zoom=%d\n", view.lat, view.lon, view.zoom);
+    } else if (line.startsWith("routekey ")) {
+        // 経路サービスの API キーを保存する。キーそのものは出力しない。
+        const bool ok = settings::setRouteKey(line.substring(9));
+        Serial.printf("INFO routekey saved=%d length=%u\n", ok,
+                      static_cast<unsigned>(settings::routeKey().length()));
+    } else if (line == "gps off") {
+        gps::stopSimulation();
+    } else if (line.startsWith("gps ")) {
+        double lat = 0, lon = 0;
+        if (sscanf(line.c_str(), "gps %lf %lf", &lat, &lon) == 2) {
+            gps::simulate(lat, lon);
+        }
+    } else if (line.startsWith("dest ")) {
+        double lat = 0, lon = 0;
+        if (sscanf(line.c_str(), "dest %lf %lf", &lat, &lon) == 2) {
+            apps::offerDestination(lat, lon, "コンソールから");
+            Serial.printf("INFO dest offered lat=%.6f lon=%.6f\n", lat, lon);
+        }
     } else if (sscanf(line.c_str(), "web %d", &a) == 1) {
         if (a) {
             const bool ok = webfiles::start(false);
@@ -191,7 +210,8 @@ void run(const String &line, board::TouchEvent &ev, bool &home)
         Serial.printf("ERR unknown command: %s\n", line.c_str());
         return;
     }
-    Serial.printf("OK %s\n", line.c_str());
+    // 受け取ったコマンドを返す。API キーは出力に残さない。
+    Serial.printf("OK %s\n", line.startsWith("routekey ") ? "routekey" : line.c_str());
 }
 
 }  // namespace

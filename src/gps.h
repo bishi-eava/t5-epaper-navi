@@ -28,4 +28,9 @@ double longitude();
 float hdop();
 int satellites();
 
+// 調査用: 測位した位置を、指定した緯度経度に置き換える（屋内で案内の表示を確かめるため）。
+// 起動し直すか、stopSimulation() を呼ぶまで続く。
+void simulate(double lat, double lon);
+void stopSimulation();
+
 }  // namespace gps

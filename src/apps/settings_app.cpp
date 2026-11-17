@@ -1,4 +1,4 @@
-// 設定: WiFi（スキャンして選択）、WiFi 転送の名前とパスワード、フロントライト、スリープ時間、ロック画面、時刻、本体情報。
+// 設定: WiFi（スキャンして選択）、WiFi 転送の名前とパスワード、ルート案内の API キー、フロントライト、スリープ時間、ロック画面、時刻、本体情報。
 #include <WiFi.h>
 
 #include <algorithm>
@@ -48,6 +48,7 @@ const ui::Rect kTransferReset = {60, 620, 420, 80};
 enum MainRow {
     RowWifi,
     RowTransfer,
+    RowRoute,
     RowLight,
     RowSleep,
     RowLockImage,
@@ -100,6 +101,8 @@ public:
             case Screen::TransferName:
             case Screen::TransferPassword:
                 return "WiFi 転送";
+            case Screen::RouteKey:
+                return "ルート案内";
             case Screen::Info:
                 return "本体情報";
             case Screen::Vcom:
@@ -145,6 +148,7 @@ public:
             case Screen::WifiPassword:
             case Screen::TransferName:
             case Screen::TransferPassword:
+            case Screen::RouteKey:
                 keyboard_.draw();
                 break;
             case Screen::Transfer:
@@ -181,6 +185,9 @@ public:
             case Screen::TransferPassword:
                 tapTransferKeyboard(x, y);
                 break;
+            case Screen::RouteKey:
+                tapRouteKeyboard(x, y);
+                break;
             case Screen::Info:
                 break;
             case Screen::Vcom:
@@ -198,6 +205,7 @@ private:
         Transfer,
         TransferName,
         TransferPassword,
+        RouteKey,
         Info,
         Vcom,
     };
@@ -224,6 +232,8 @@ private:
     {
         drawRow(RowWifi, "WiFi", net::connected() ? net::currentSsid() : String("未接続"));
         drawRow(RowTransfer, "WiFi 転送", webfiles::ssid());
+        drawRow(RowRoute, "ルート案内",
+                settings::routeKey().length() ? String("API キー設定済み") : String("API キー未設定"));
         drawRow(RowLight, "フロントライト",
                 settings::frontlight() == 0 ? String("オフ") : String(settings::frontlight()) + "%");
         drawRow(RowSleep, "スリープまでの時間", String(settings::sleepMinutes()) + "分");
@@ -261,6 +271,11 @@ private:
                 break;
             case RowTransfer:
                 screen_ = Screen::Transfer;
+                break;
+            case RowRoute:
+                // 経路サービス（Stadia Maps）の API キー。空にして決定すると未設定に戻る。
+                keyboard_.begin("Stadia Maps の API キー", settings::routeKey());
+                screen_ = Screen::RouteKey;
                 break;
             case RowLight:
                 settings::setFrontlight(nextStep(kLightSteps, settings::frontlight()));
@@ -571,6 +586,28 @@ private:
             }
             case ui::Keyboard::Cancel:
                 show(Screen::Transfer);
+                break;
+            default:
+                break;
+        }
+    }
+
+    // ---- ルート案内（経路サービスの API キー）----
+
+    void tapRouteKeyboard(int x, int y)
+    {
+        switch (keyboard_.tap(x, y)) {
+            case ui::Keyboard::Done:
+                if (settings::setRouteKey(keyboard_.value())) {
+                    show(Screen::Main);
+                } else {
+                    ui::message("保存できません", "API キーが長すぎます");
+                    delay(2000);
+                    ui::requestRedraw();
+                }
+                break;
+            case ui::Keyboard::Cancel:
+                show(Screen::Main);
                 break;
             default:
                 break;

@@ -25,6 +25,10 @@ bool isImagePath(const String &path);
 // SD カード上の画像を、指定した枠に収まるよう縮小して中央に描く。
 bool drawImageFit(const String &path, int x, int y, int w, int h);
 
+// マップに目的地の候補を渡す（スマホからの受信や、調査用コンソールから使う）。
+// マップを開いているときに、本体の画面で確認してから目的地にする。
+void offerDestination(double lat, double lon, const String &name);
+
 // ロック画面（画像のみ）を表示する。反映まで行う。
 void showLockScreen();
 

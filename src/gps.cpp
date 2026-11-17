@@ -113,17 +113,40 @@ const char *modelName()
     return g_lastModel;
 }
 
+// 調査用の置き換え位置（simulate() を参照）
+bool g_simulated = false;
+double g_simulatedLat = 0;
+double g_simulatedLon = 0;
+
+void simulate(double lat, double lon)
+{
+    g_simulated = true;
+    g_simulatedLat = lat;
+    g_simulatedLon = lon;
+}
+
+void stopSimulation()
+{
+    g_simulated = false;
+}
+
 bool hasFix()
 {
+    if (g_simulated) {
+        return g_running;
+    }
     return g_running && g_detected && g_gps.location.isValid() &&
            g_gps.location.age() < kFixTimeoutMs;
 }
 
-double latitude() { return g_gps.location.lat(); }
-double longitude() { return g_gps.location.lng(); }
+double latitude() { return g_simulated ? g_simulatedLat : g_gps.location.lat(); }
+double longitude() { return g_simulated ? g_simulatedLon : g_gps.location.lng(); }
 
 float hdop()
 {
+    if (g_simulated) {
+        return 1.0f;
+    }
     return g_gps.hdop.isValid() ? static_cast<float>(g_gps.hdop.hdop()) : 99.0f;
 }
 

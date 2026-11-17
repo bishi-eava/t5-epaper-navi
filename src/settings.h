@@ -32,6 +32,11 @@ bool setTransferPassword(const String &password);
 // 名前とパスワードを未設定（既定値）に戻す。
 void resetTransfer();
 
+// ルート案内で使う経路サービス（Stadia Maps）の API キー。空なら未設定。
+// 前後の空白を除いて保存する。長すぎるもの（128 文字超）は保存せず false。
+String routeKey();
+bool setRouteKey(const String &key);
+
 // 電子ペーパーの VCOM 電圧（mV）
 int vcom();
 void setVcom(int millivolts);

@@ -15,6 +15,7 @@ String g_lockImage;
 String g_imageDir;
 String g_transferSsid;
 String g_transferPassword;
+String g_routeKey;
 MapView g_mapView;
 int g_vcom = board::kVcomDefaultMv;
 
@@ -39,6 +40,7 @@ void load()
         g_imageDir = p.isKey("imgdir") ? p.getString("imgdir", "") : String();
         g_transferSsid = p.isKey("apssid") ? p.getString("apssid", "") : String();
         g_transferPassword = p.isKey("appass") ? p.getString("appass", "") : String();
+        g_routeKey = p.isKey("routekey") ? p.getString("routekey", "") : String();
         g_vcom = p.getUShort("vcom", board::kVcomDefaultMv);
         if (p.isKey("maplat") && p.isKey("maplon")) {
             g_mapView.lat = p.getDouble("maplat", g_mapView.lat);
@@ -115,6 +117,26 @@ void resetTransfer()
         p.remove("apssid");
         p.remove("appass");
     });
+}
+
+String routeKey() { return g_routeKey; }
+
+bool setRouteKey(const String &key)
+{
+    String value = key;
+    value.trim();
+    if (value.length() > 128) {
+        return false;
+    }
+    g_routeKey = value;
+    withPrefs([&](Preferences &p) {
+        if (value.length()) {
+            p.putString("routekey", value);
+        } else {
+            p.remove("routekey");
+        }
+    });
+    return true;
 }
 
 int vcom() { return g_vcom; }

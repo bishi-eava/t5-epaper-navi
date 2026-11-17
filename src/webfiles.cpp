@@ -92,6 +92,7 @@ button.danger{background:#111;color:#f77;border-color:#f77}.row{border-color:#33
 <div style="display:flex;gap:8px;flex-wrap:wrap">
 <button class="primary" id="pick">アップロード</button>
 <button id="mkdir">新しいフォルダ</button>
+<button id="rkey">ルート案内の API キー</button>
 <input type="file" id="files" multiple hidden>
 </div>
 <div id="drop">ファイルをここにドロップしてもアップロードできます</div>
@@ -171,6 +172,7 @@ $('pclose').onclick=()=>{show('preview',false);$('pbody').textContent=''};
 function ask(title,value,done){$('atitle').textContent=title;$('ainput').value=value;show('ask',true);$('ainput').focus();$('ainput').select();
   $('aok').onclick=()=>{const v=$('ainput').value.trim();show('ask',false);if(v)done(v)}}
 $('acancel').onclick=()=>show('ask',false);
+$('rkey').onclick=()=>ask('Stadia Maps の API キー','',async v=>{if(await post('/api/routekey?key='+enc(v)))msg('API キーを保存しました')});
 $('ainput').onkeydown=e=>{if(e.key==='Enter')$('aok').click()};
 $('mrename').onclick=()=>{show('menu',false);const old=sel.name;ask('名前の変更',old,async v=>{
   if(v===old)return;msg('');await post('/api/rename?path='+enc(join(cur,old))+'&to='+enc(v));load(cur)})};
@@ -561,6 +563,20 @@ void handleMkdir()
     g_server.send(200, "text/plain; charset=utf-8", "OK");
 }
 
+// ルート案内で使う経路サービスの API キーを保存する。本体のキーボードでは長くて打ちにくいので、
+// ブラウザからも入力できるようにしている。保存してあるキーをブラウザに返すことはしない。
+void handleRouteKey()
+{
+    noteRequest();
+    String key = g_server.arg("key");
+    key.trim();
+    if (key.length() == 0 || !settings::setRouteKey(key)) {
+        g_server.send(400, "text/plain; charset=utf-8", "API キーを保存できませんでした");
+        return;
+    }
+    g_server.send(200, "text/plain; charset=utf-8", "OK");
+}
+
 void registerHandlers()
 {
     static bool registered = false;
@@ -577,6 +593,7 @@ void registerHandlers()
     g_server.on("/api/view", HTTP_GET, handleView);
     g_server.on("/api/rename", HTTP_POST, handleRename);
     g_server.on("/api/storage", HTTP_GET, handleStorage);
+    g_server.on("/api/routekey", HTTP_POST, handleRouteKey);
     g_server.onNotFound([]() { g_server.send(404, "text/plain; charset=utf-8", "Not found"); });
 }
 
