@@ -46,6 +46,21 @@ struct Battery {
 };
 Battery readBattery();
 
+// 直前のディープスリープで減った電池の量。スリープ電流の確認に使う。
+// ディープスリープからの復帰直後だけ valid になる（電源投入や書き込み後の起動では無効）。
+struct SleepReport {
+    bool valid = false;
+    uint32_t seconds = 0;   // スリープしていた時間。RTC が未設定なら 0
+    int mahBefore = 0;      // スリープ直前の残り容量 mAh
+    int mahAfter = 0;       // 復帰直後の残り容量 mAh
+    int percentBefore = 0;  // スリープ直前の残量 %
+    int percentAfter = 0;   // 復帰直後の残量 %
+    int millivoltsBefore = 0;  // スリープ直前の電圧 mV
+    int millivoltsAfter = 0;   // 復帰直後の電圧 mV
+    int wakeMilliamps = 0;  // 復帰直後に残量計が示した電流 mA（スリープ中の値。負が放電）
+};
+SleepReport lastSleep();
+
 // RTC (PCF8563)。時刻は UTC で保持する。未設定・読み取り失敗時は 0 を返す。
 time_t rtcRead();
 bool rtcWrite(time_t utc);
@@ -93,5 +108,8 @@ bool bootPressed();
 
 // 周辺回路をすべて止めてディープスリープに入る。BOOT ボタンで復帰（再起動）する。
 [[noreturn]] void deepSleep();
+
+// 調査用: 充電 IC (BQ25896) のレジスタをすべて出力する。
+void chargerDump(Print &out);
 
 }  // namespace board

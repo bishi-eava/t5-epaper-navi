@@ -49,6 +49,22 @@ void sendInfo()
                   gps::modelName(), gps::hasFix(), gps::satellites(), gps::hdop(), gps::latitude(),
                   gps::longitude(), static_cast<unsigned>(ESP.getFreeHeap()),
                   static_cast<unsigned>(ESP.getFreePsram()));
+    // 直前のスリープで減った電池の量と、そこから求めた平均電流。
+    const board::SleepReport sleep = board::lastSleep();
+    if (sleep.valid) {
+        const int usedMah = sleep.mahBefore - sleep.mahAfter;
+        Serial.printf("INFO lastSleep seconds=%u mah=%d->%d percent=%d->%d mv=%d->%d "
+                      "wakeMilliamps=%d",
+                      static_cast<unsigned>(sleep.seconds), sleep.mahBefore, sleep.mahAfter,
+                      sleep.percentBefore, sleep.percentAfter, sleep.millivoltsBefore,
+                      sleep.millivoltsAfter, sleep.wakeMilliamps);
+        if (sleep.seconds > 0) {
+            Serial.printf(" avgMilliamps=%.2f", usedMah * 3600.0 / sleep.seconds);
+        }
+        Serial.println();
+    } else {
+        Serial.println("INFO lastSleep none");
+    }
     if (sd) {
         File root = SD.open("/");
         int count = 0;
@@ -88,6 +104,8 @@ void run(const String &line, board::TouchEvent &ev, bool &home)
     int a = 0, b = 0, c = 0, d = 0;
     if (line == "shot") {
         sendScreenshot();
+    } else if (line == "charger") {
+        board::chargerDump(Serial);
     } else if (line == "info") {
         sendInfo();
         const settings::MapView view = settings::mapView();

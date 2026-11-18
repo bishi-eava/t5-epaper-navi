@@ -80,6 +80,17 @@ constexpr int kTapSlop = 24;  // これ以内の移動はタップとみなす
 int g_vcomMv = kVcomDefaultMv;
 int g_vcomReadbackMv = -1;
 
+// スリープに入る直前の残量計の値。RTC メモリに置くので、ディープスリープをまたいで残る。
+// 復帰時の値と比べて、スリープ中の平均消費電流を求める（lastSleep() を参照）。
+RTC_DATA_ATTR bool g_sleepMarkValid = false;
+RTC_DATA_ATTR int32_t g_sleepMarkMah = 0;
+RTC_DATA_ATTR int32_t g_sleepMarkPercent = 0;
+RTC_DATA_ATTR int32_t g_sleepMarkMillivolts = 0;
+RTC_DATA_ATTR int64_t g_sleepMarkUtc = 0;
+SleepReport g_lastSleep;
+
+bool gaugeRemainingMah(int &mah);
+
 // ---- I2C ヘルパー -----------------------------------------------------------
 
 bool i2cWrite(uint8_t addr, const uint8_t *data, size_t len)
@@ -109,6 +120,27 @@ bool i2cRead(uint8_t addr, uint8_t reg, uint8_t *buf, size_t len)
         buf[i] = static_cast<uint8_t>(Wire.read());
     }
     return true;
+}
+
+// ---- 充電 IC (BQ25896) ------------------------------------------------------
+
+void chargerUpdate(uint8_t reg, uint8_t mask, uint8_t bits)
+{
+    uint8_t value = 0;
+    if (i2cRead(kAddrCharger, reg, &value, 1)) {
+        i2cWriteReg(kAddrCharger, reg, static_cast<uint8_t>((value & ~mask) | bits));
+    }
+}
+
+// 充電電流を電池（1500mAh）に合わせる。既定値は 2048mA で、この電池には大きすぎる。
+// 公式ファームと同じ 1024mA にする。充電 IC は電池から給電され続けるので、ほかのファームウェアが
+// 書いた設定が残っていることもあれば、既定値に戻っていることもある。どちらでも同じ状態になるよう、
+// 起動のたびに書き込む。
+void chargerInit()
+{
+    // 先にウォッチドッグを止める。動いたままだと 40 秒後に設定が既定値へ戻る。
+    chargerUpdate(0x07, 0x30, 0x00);
+    chargerUpdate(0x04, 0x7F, 0x10);  // 充電電流 1024mA（64mA 刻み）
 }
 
 // ---- PCA9535 (IO 拡張) ------------------------------------------------------
@@ -345,12 +377,36 @@ int64_t daysFromCivil(int y, int m, int d)
     return era * 146097 + doe - 719468;
 }
 
+// 残量計 (BQ27220) の残り容量 (mAh)。
+bool gaugeRemainingMah(int &mah)
+{
+    uint8_t buf[2];
+    if (!i2cRead(kAddrGauge, 0x10, buf, 2)) {  // RemainingCapacity
+        return false;
+    }
+    mah = buf[0] | (buf[1] << 8);
+    return true;
+}
+
 }  // namespace
 
 lgfx::LGFX_Device &display = g_display;
 
 bool begin()
 {
+    // 残量計が示す電流は直前 1 秒ほどの平均なので、起動直後に読めばスリープ中の値になる。
+    // ほかの回路を動かす前に読んでおく。
+    Wire.begin(kI2cSda, kI2cScl);
+    Wire.setClock(400000);
+    int wakeMilliamps = 0;
+    {
+        uint8_t buf[2];
+        if (i2cRead(kAddrGauge, 0x0C, buf, 2)) {
+            wakeMilliamps = static_cast<int16_t>(buf[0] | (buf[1] << 8));
+        }
+    }
+    chargerInit();
+
     // スリープ中に保持していたピン状態を解除する。
     gpio_hold_dis(kPinTouchRst);
     gpio_deep_sleep_hold_dis();
@@ -391,8 +447,32 @@ bool begin()
     }
 
     setRadioPower(true);
+
+    // ディープスリープからの復帰なら、スリープ中に減った電池の量を記録しておく。
+    if (g_sleepMarkValid && esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
+        int mah = 0;
+        const Battery b = readBattery();
+        const time_t now = rtcRead();
+        if (gaugeRemainingMah(mah) && b.valid) {
+            g_lastSleep.valid = true;
+            g_lastSleep.seconds =
+                (now > 0 && g_sleepMarkUtc > 0 && now > g_sleepMarkUtc)
+                    ? static_cast<uint32_t>(now - g_sleepMarkUtc)
+                    : 0;
+            g_lastSleep.mahBefore = g_sleepMarkMah;
+            g_lastSleep.mahAfter = mah;
+            g_lastSleep.percentBefore = g_sleepMarkPercent;
+            g_lastSleep.percentAfter = b.percent;
+            g_lastSleep.millivoltsBefore = g_sleepMarkMillivolts;
+            g_lastSleep.millivoltsAfter = b.millivolts;
+            g_lastSleep.wakeMilliamps = wakeMilliamps;
+        }
+    }
+    g_sleepMarkValid = false;
     return true;
 }
+
+SleepReport lastSleep() { return g_lastSleep; }
 
 void setDrawMode(epd_mode_t mode)
 {
@@ -632,14 +712,11 @@ bool bootPressed()
     return digitalRead(kPinBoot) == LOW;
 }
 
-void deepSleep()
-{
-    // BOOT を押したまま入ると即座に復帰してしまうので、離されるのを待つ。
-    while (bootPressed()) {
-        delay(10);
-    }
-    delay(50);
+namespace {
 
+// 周辺回路をすべて止める。deepSleep() と切り分けテストの両方から使う。
+void shutdownPeripherals()
+{
     g_display.waitDisplay();
     g_display.powerSaveOn();  // 画面電源 (TPS65185) を落とす
 
@@ -652,6 +729,33 @@ void deepSleep()
     }
     SPI.end();
 
+    // SD カードを待機状態に入らせる。SD.end() は最後にリセットコマンド (CMD0) を送るが、
+    // そのあとクロックを止めてしまうので、カードが待機状態に移れず約 28mA を消費し続ける
+    // （実機で確認: これがないとスリープ中 28mA、あると 1〜2mA）。
+    // カードを非選択 (CS = High) にしたままクロックを送ると、カードは処理を終えて待機に入る。
+    {
+        const gpio_num_t cs = static_cast<gpio_num_t>(kPinSdCs);
+        const gpio_num_t mosi = static_cast<gpio_num_t>(kPinSpiMosi);
+        const gpio_num_t sck = static_cast<gpio_num_t>(kPinSpiSck);
+        pinMode(cs, OUTPUT);
+        digitalWrite(cs, HIGH);
+        pinMode(mosi, OUTPUT);
+        digitalWrite(mosi, HIGH);
+        pinMode(sck, OUTPUT);
+        digitalWrite(sck, LOW);
+        for (int i = 0; i < 160; ++i) {
+            digitalWrite(sck, HIGH);
+            delayMicroseconds(5);
+            digitalWrite(sck, LOW);
+            delayMicroseconds(5);
+        }
+        // 信号線は LoRa チップと共用。出力のままにすると、電源を切った LoRa/GPS 側へ
+        // 電流が流れ込む（MOSI を High で保持すると 20mA 増えた）ので、入力に戻す。
+        pinMode(cs, INPUT);
+        pinMode(mosi, INPUT);
+        pinMode(sck, INPUT);
+    }
+
     setRadioPower(false);
     ledcWrite(kBacklightChannel, 0);
     ledcDetachPin(kPinBacklight);
@@ -663,8 +767,40 @@ void deepSleep()
         g_touch.sleep();
     }
     digitalWrite(kPinTouchRst, LOW);
+    // GPIO9 は RTC 系のピンなので、gpio_hold_en() だけでスリープ中も Low を保てる。
+    // gpio_deep_sleep_hold_en() は呼ばない。呼ぶと RTC 系以外のピンがすべてスリープ直前の
+    // 出力のまま固定され、High を出しているピン（GPS への UART 送信線 GPIO43 など）から、
+    // 電源を切った周辺回路へ電流が流れ込み続ける。呼ばなければ、それらのピンは
+    // スリープ中に切り離される。
     gpio_hold_en(kPinTouchRst);
-    gpio_deep_sleep_hold_en();
+
+    // 電源を切った GPS へ信号線から電流を流し込まない。
+    pinMode(kPinGpsTx, INPUT);
+    pinMode(kPinGpsRx, INPUT);
+}
+
+}  // namespace
+
+void deepSleep()
+{
+    // BOOT を押したまま入ると即座に復帰してしまうので、離されるのを待つ。
+    while (bootPressed()) {
+        delay(10);
+    }
+    delay(50);
+
+    shutdownPeripherals();
+
+    // 復帰時に消費量を求めるため、残量計の値を控える。
+    {
+        int mah = 0;
+        const Battery b = readBattery();
+        g_sleepMarkValid = gaugeRemainingMah(mah) && b.valid;
+        g_sleepMarkMah = mah;
+        g_sleepMarkPercent = b.percent;
+        g_sleepMarkMillivolts = b.millivolts;
+        g_sleepMarkUtc = rtcRead();
+    }
 
     Serial.flush();
 
@@ -674,6 +810,20 @@ void deepSleep()
     esp_deep_sleep_start();
     while (true) {
     }
+}
+
+void chargerDump(Print &out)
+{
+    out.print("INFO charger");
+    for (uint8_t reg = 0; reg <= 0x14; ++reg) {
+        uint8_t value = 0;
+        if (i2cRead(kAddrCharger, reg, &value, 1)) {
+            out.printf(" %02X=%02X", reg, value);
+        } else {
+            out.printf(" %02X=??", reg);
+        }
+    }
+    out.println();
 }
 
 }  // namespace board

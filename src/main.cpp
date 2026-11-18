@@ -4,6 +4,7 @@
 #include "apps.h"
 #include "board.h"
 #include "debug.h"
+#include "gps.h"
 #include "net.h"
 #include "settings.h"
 #include "ui.h"
@@ -18,6 +19,7 @@ bool g_bootArmed = false;  // 復帰時に押されていた BOOT が一度離�
 [[noreturn]] void lockAndSleep()
 {
     apps::showLockScreen();
+    gps::stop();  // 地図を開いたままスリープするときも、UART を閉じて送信線を解放する
     board::deepSleep();
 }
 
